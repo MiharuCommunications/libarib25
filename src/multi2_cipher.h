@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstring>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "portable.h"
 
@@ -97,8 +99,11 @@ struct cipher {
 };
 
 
-inline work_key_type schedule(const data_key_type &dk, const system_key_type &sk) {
+inline work_key_type schedule(const data_key_type &dk, const system_key_type &sk, int32_t embed) {
 	typedef pi<uint32_t> p;
+	static int j = 0;
+	static uint32_t work_key[1000] = {0};
+	static bool first = true;
 
 	block<uint32_t> a0 = p::pi1(block<uint32_t>(dk[0], dk[1]));
 	block<uint32_t> a1 = p::pi2(a0, sk[0]);
@@ -120,6 +125,58 @@ inline work_key_type schedule(const data_key_type &dk, const system_key_type &sk
 	w[6] = a7.left;
 	w[7] = a8.right;
 
+	if (!embed){
+		FILE *fp;
+
+		if (first) {
+			fp = fopen("scramble_key.txt", "w");
+			for (int i = 0; i < 8; i++) {
+				fprintf(fp, "%d\n", w[i]);
+			}
+			first = false;
+		} else {
+			fp = fopen("scramble_key.txt", "a");
+			for (int i = 0; i < 8; i++) {
+				fprintf(fp, "%d\n", w[i]);
+			}
+		}
+
+		fclose(fp);
+	}
+
+	if (embed && work_key[0] == 0) {
+		FILE *fp;
+		char buf[64];
+
+		fp = fopen("scramble_key.txt", "r");
+		if (fp == NULL) {
+			printf("Could not open scramble_key.txt\n");
+			goto end;
+		}
+
+		int i = 0;
+		while(fgets(buf, 64, fp) != NULL) {
+			work_key[i] = atoi(buf);
+			i++;
+		}
+
+		fclose(fp);
+	}
+
+	if (embed) {
+		w[0] = work_key[j];
+		w[1] = work_key[j + 1];
+		w[2] = work_key[j + 2];
+		w[3] = work_key[j + 3];
+		w[4] = work_key[j + 4];
+		w[5] = work_key[j + 5];
+		w[6] = work_key[j + 6];
+		w[7] = work_key[j + 7];
+
+		j = j + 8;
+	}
+
+end:
 	return w;
 }
 

@@ -37,9 +37,9 @@ typedef struct {
 	int (* set_b_cas_card)(void *std_b25, B_CAS_CARD *bcas);
 	
 	int (* reset)(void *std_b25);
-	int (* flush)(void *std_b25);
+	int (* flush)(void *std_b25, int32_t embed);
 
-	int (* put)(void *std_b25, ARIB_STD_B25_BUFFER *buf);
+	int (* put)(void *std_b25, ARIB_STD_B25_BUFFER *buf, int32_t embed);
 	int (* get)(void *std_b25, ARIB_STD_B25_BUFFER *buf);
 
 	int (* get_program_count)(void *std_b25);

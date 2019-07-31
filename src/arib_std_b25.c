@@ -317,8 +317,8 @@ static int set_strip_arib_std_b25(void *std_b25, int32_t strip);
 static int set_emm_proc_arib_std_b25(void *std_b25, int32_t on);
 static int set_b_cas_card_arib_std_b25(void *std_b25, B_CAS_CARD *bcas);
 static int reset_arib_std_b25(void *std_b25);
-static int flush_arib_std_b25(void *std_b25);
-static int put_arib_std_b25(void *std_b25, ARIB_STD_B25_BUFFER *buf);
+static int flush_arib_std_b25(void *std_b25, int32_t embed);
+static int put_arib_std_b25(void *std_b25, ARIB_STD_B25_BUFFER *buf, int32_t embed);
 static int get_arib_std_b25(void *std_b25, ARIB_STD_B25_BUFFER *buf);
 static int get_program_count_arib_std_b25(void *std_b25);
 static int get_program_info_arib_std_b25(void *std_b25, ARIB_STD_B25_PROGRAM_INFO *info, int idx);
@@ -358,6 +358,8 @@ ARIB25_API_EXPORT ARIB_STD_B25 *create_arib_std_b25()
 	r->get_program_count = get_program_count_arib_std_b25;
 	r->get_program_info = get_program_info_arib_std_b25;
 
+	prv->ca_system_id = 5;
+
 	return r;
 }
 
@@ -375,9 +377,9 @@ static int proc_pmt(ARIB_STD_B25_PRIVATE_DATA *prv, TS_PROGRAM *pgrm);
 static int32_t find_ca_descriptor_pid(uint8_t *head, uint8_t *tail, int32_t ca_system_id);
 static int32_t add_ecm_stream(ARIB_STD_B25_PRIVATE_DATA *prv, TS_STREAM_LIST *list, int32_t ecm_pid);
 static int check_ecm_complete(ARIB_STD_B25_PRIVATE_DATA *prv);
-static int find_ecm(ARIB_STD_B25_PRIVATE_DATA *prv);
-static int proc_ecm(DECRYPTOR_ELEM *dec, B_CAS_CARD *bcas, int32_t multi2_round);
-static int proc_arib_std_b25(ARIB_STD_B25_PRIVATE_DATA *prv);
+static int find_ecm(ARIB_STD_B25_PRIVATE_DATA *prv, int32_t embed);
+static int proc_ecm(DECRYPTOR_ELEM *dec, B_CAS_CARD *bcas, int32_t multi2_round, int32_t embed);
+static int proc_arib_std_b25(ARIB_STD_B25_PRIVATE_DATA *prv, int32_t embed);
 
 static int proc_cat(ARIB_STD_B25_PRIVATE_DATA *prv);
 static int proc_emm(ARIB_STD_B25_PRIVATE_DATA *prv);
@@ -510,7 +512,7 @@ static int reset_arib_std_b25(void *std_b25)
 	return 0;
 }
 
-static int flush_arib_std_b25(void *std_b25)
+static int flush_arib_std_b25(void *std_b25, int32_t embed)
 {
 	int r;
 	int m,n;
@@ -541,7 +543,7 @@ static int flush_arib_std_b25(void *std_b25)
 		}
 	}
 
-	r = proc_arib_std_b25(prv);
+	r = proc_arib_std_b25(prv, embed);
 	if(r < 0){
 		return r;
 	}
@@ -609,7 +611,7 @@ static int flush_arib_std_b25(void *std_b25)
 			}
 
 			if( (dec != NULL) && (dec->m2 != NULL) ){
-				m = dec->m2->decrypt(dec->m2, crypt, p, n);
+				m = dec->m2->decrypt(dec->m2, crypt, p, n, embed);
 				if(m < 0){
 					r = ARIB_STD_B25_ERROR_DECRYPT_FAILURE;
 					goto LAST;
@@ -648,7 +650,7 @@ static int flush_arib_std_b25(void *std_b25)
 			if(m == 0){
 				goto NEXT;
 			}
-			r = proc_ecm(dec, prv->bcas, prv->multi2_round);
+			r = proc_ecm(dec, prv->bcas, prv->multi2_round, embed);
 			if(r < 0){
 				goto LAST;
 			}
@@ -776,7 +778,7 @@ LAST:
 	return r;
 }
 
-static int put_arib_std_b25(void *std_b25, ARIB_STD_B25_BUFFER *buf)
+static int put_arib_std_b25(void *std_b25, ARIB_STD_B25_BUFFER *buf, int32_t embed)
 {
 	int32_t n;
 	
@@ -836,24 +838,26 @@ static int put_arib_std_b25(void *std_b25, ARIB_STD_B25_BUFFER *buf)
 		prv->sbuf_offset = 0;
 	}
 
-	if(!check_ecm_complete(prv)){
-		n = find_ecm(prv);
-		if(n < 0){
-			return n;
-		}
+	if(!embed){
 		if(!check_ecm_complete(prv)){
-			if(prv->sbuf_offset < (32*1024*1024)){
-				/* need more data */
-				return 0;
-			}else{
-				/* exceed sbuf limit */
-				return ARIB_STD_B25_ERROR_NO_ECM_IN_HEAD_32M;
+			n = find_ecm(prv, embed);
+			if(n < 0){
+				return n;
 			}
+			if(!check_ecm_complete(prv)){
+				if(prv->sbuf_offset < (32*1024*1024)){
+					/* need more data */
+					return 0;
+				}else{
+					/* exceed sbuf limit */
+					return ARIB_STD_B25_ERROR_NO_ECM_IN_HEAD_32M;
+				}
+			}
+			prv->sbuf_offset = 0;
 		}
-		prv->sbuf_offset = 0;
 	}
 
-	return proc_arib_std_b25(prv);
+	return proc_arib_std_b25(prv, embed);
 }
 
 static int get_arib_std_b25(void *std_b25, ARIB_STD_B25_BUFFER *buf)
@@ -1582,7 +1586,7 @@ static int check_ecm_complete(ARIB_STD_B25_PRIVATE_DATA *prv)
 	return 1;
 }
 
-static int find_ecm(ARIB_STD_B25_PRIVATE_DATA *prv)
+static int find_ecm(ARIB_STD_B25_PRIVATE_DATA *prv, int32_t embed)
 {
 	int r;
 	int n,size;
@@ -1652,7 +1656,7 @@ static int find_ecm(ARIB_STD_B25_PRIVATE_DATA *prv)
 				goto NEXT;
 			}
 
-			r = proc_ecm(dec, prv->bcas, prv->multi2_round);
+			r = proc_ecm(dec, prv->bcas, prv->multi2_round, embed);
 			if(r < 0){
 				curr += unit;
 				goto LAST;
@@ -1684,7 +1688,7 @@ LAST:
 	return r;
 }
 
-static int proc_ecm(DECRYPTOR_ELEM *dec, B_CAS_CARD *bcas, int32_t multi2_round)
+static int proc_ecm(DECRYPTOR_ELEM *dec, B_CAS_CARD *bcas, int32_t multi2_round, int32_t embed)
 {
 	int r,n;
 	int length;
@@ -1699,9 +1703,11 @@ static int proc_ecm(DECRYPTOR_ELEM *dec, B_CAS_CARD *bcas, int32_t multi2_round)
 	r = 0;
 	memset(&sect, 0, sizeof(sect));
 
-	if(bcas == NULL){
-		r = ARIB_STD_B25_ERROR_EMPTY_B_CAS_CARD;
-		goto LAST;
+	if(!embed) {
+		if(bcas == NULL){
+			r = ARIB_STD_B25_ERROR_EMPTY_B_CAS_CARD;
+			goto LAST;
+		}
 	}
 
 	n = dec->ecm->get(dec->ecm, &sect);
@@ -1725,28 +1731,30 @@ static int proc_ecm(DECRYPTOR_ELEM *dec, B_CAS_CARD *bcas, int32_t multi2_round)
 	length = (sect.tail - sect.data) - 4;
 	p = sect.data;
 
-	r = bcas->proc_ecm(bcas, &res, p, length);
-	if(r < 0){
-		if(dec->m2 != NULL){
-			dec->m2->clear_scramble_key(dec->m2);
+	if(!embed){
+		r = bcas->proc_ecm(bcas, &res, p, length);
+		if(r < 0){
+			if(dec->m2 != NULL){
+				dec->m2->clear_scramble_key(dec->m2);
+			}
+			r = ARIB_STD_B25_ERROR_ECM_PROC_FAILURE;
+			goto LAST;
 		}
-		r = ARIB_STD_B25_ERROR_ECM_PROC_FAILURE;
-		goto LAST;
-	}
-	
-	if( (res.return_code != 0x0800) &&
-	    (res.return_code != 0x0400) &&
-	    (res.return_code != 0x0200) ){
-		/* return_code is not equal "purchased" */
-		if(dec->m2 != NULL){
-			dec->m2->release(dec->m2);
-			dec->m2 = NULL;
+		
+		if( (res.return_code != 0x0800) &&
+		    (res.return_code != 0x0400) &&
+		    (res.return_code != 0x0200) ){
+			/* return_code is not equal "purchased" */
+			if(dec->m2 != NULL){
+				dec->m2->release(dec->m2);
+				dec->m2 = NULL;
+			}
+			dec->unpurchased += 1;
+			dec->last_error = res.return_code;
+			dec->locked += 1;
+			r = ARIB_STD_B25_WARN_UNPURCHASED_ECM;
+			goto LAST;
 		}
-		dec->unpurchased += 1;
-		dec->last_error = res.return_code;
-		dec->locked += 1;
-		r = ARIB_STD_B25_WARN_UNPURCHASED_ECM;
-		goto LAST;
 	}
 
 	if(dec->m2 == NULL){
@@ -1754,16 +1762,20 @@ static int proc_ecm(DECRYPTOR_ELEM *dec, B_CAS_CARD *bcas, int32_t multi2_round)
 		if(dec->m2 == NULL){
 			return ARIB_STD_B25_ERROR_NO_ENOUGH_MEMORY;
 		}
-		r = bcas->get_init_status(bcas, &is);
-		if(r < 0){
-			return ARIB_STD_B25_ERROR_INVALID_B_CAS_STATUS;
+		if(!embed){
+			r = bcas->get_init_status(bcas, &is);
+			if(r < 0){
+				return ARIB_STD_B25_ERROR_INVALID_B_CAS_STATUS;
+			}
+			dec->m2->set_system_key(dec->m2, is.system_key);
 		}
-		dec->m2->set_system_key(dec->m2, is.system_key);
 		dec->m2->set_init_cbc(dec->m2, is.init_cbc);
 		dec->m2->set_round(dec->m2, multi2_round);
 	}
 
-	dec->m2->set_scramble_key(dec->m2, res.scramble_key);
+	if(!embed){
+		dec->m2->set_scramble_key(dec->m2, res.scramble_key);
+	}
 
 #if defined(DEBUG)
 	int i;
@@ -1830,7 +1842,7 @@ static void dump_pts(uint8_t *src, int32_t crypt)
 }
 #endif
 
-static int proc_arib_std_b25(ARIB_STD_B25_PRIVATE_DATA *prv)
+static int proc_arib_std_b25(ARIB_STD_B25_PRIVATE_DATA *prv, int32_t embed)
 {
 	int r;
 	int m,n;
@@ -1911,7 +1923,7 @@ static int proc_arib_std_b25(ARIB_STD_B25_PRIVATE_DATA *prv)
 			}
 
 			if( (dec != NULL) && (dec->m2 != NULL) ){
-				m = dec->m2->decrypt(dec->m2, crypt, p, n);
+				m = dec->m2->decrypt(dec->m2, crypt, p, n, embed);
 				if(m < 0){
 					r = ARIB_STD_B25_ERROR_DECRYPT_FAILURE;
 					goto LAST;
@@ -1954,7 +1966,7 @@ static int proc_arib_std_b25(ARIB_STD_B25_PRIVATE_DATA *prv)
 			if(m == 0){
 				goto NEXT;
 			}
-			r = proc_ecm(dec, prv->bcas, prv->multi2_round);
+			r = proc_ecm(dec, prv->bcas, prv->multi2_round, embed);
 			if(r < 0){
 				goto LAST;
 			}

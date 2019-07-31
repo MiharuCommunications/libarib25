@@ -34,6 +34,8 @@ typedef struct {
 	int32_t emm;
 	int32_t verbose;
 	int32_t power_ctrl;
+	int32_t embed;
+	int32_t output_key;
 } OPTION;
 
 static void show_usage();
@@ -92,6 +94,12 @@ static void show_usage()
 	_ftprintf(stderr, _T("  -v verbose\n"));
 	_ftprintf(stderr, _T("     0: silent\n"));
 	_ftprintf(stderr, _T("     1: show processing status (default)\n"));
+	_ftprintf(stderr, _T("  -e embed scramble key\n"));
+	_ftprintf(stderr, _T("     0: get scramble key from B-CAS card (default)\n"));
+	_ftprintf(stderr, _T("     1: get scramble key from file\n"));
+	_ftprintf(stderr, _T("  -o output scramble key\n"));
+	_ftprintf(stderr, _T("     0: do not output (default)\n"));
+	_ftprintf(stderr, _T("     1: output scramble key to file\n"));
 	_ftprintf(stderr, _T("\n"));
 }
 
@@ -104,6 +112,7 @@ static int parse_arg(OPTION *dst, int argc, TCHAR **argv)
 	dst->emm = 0;
 	dst->power_ctrl = 1;
 	dst->verbose = 1;
+	dst->embed = 0;
 
 	for(i=1;i<argc;i++){
 		if(argv[i][0] != '-'){
@@ -147,6 +156,22 @@ static int parse_arg(OPTION *dst, int argc, TCHAR **argv)
 				dst->verbose = _ttoi(argv[i]+2);
 			}else{
 				dst->verbose = _ttoi(argv[i+1]);
+				i += 1;
+			}
+			break;
+		case 'e':
+			if(argv[i][2]){
+				dst->embed = _ttoi(argv[i]+2);
+			}else{
+				dst->embed = _ttoi(argv[i+1]);
+				i += 1;
+			}
+			break;
+		case 'o':
+			if(argv[i][2]){
+				dst->output_key = _ttoi(argv[i]+2);
+			}else{
+				dst->output_key = _ttoi(argv[i+1]);
 				i += 1;
 			}
 			break;
@@ -223,23 +248,26 @@ static void test_arib_std_b25(const TCHAR *src, const TCHAR *dst, OPTION *opt)
 		goto LAST;
 	}
 
-	bcas = create_b_cas_card();
-	if(bcas == NULL){
-		_ftprintf(stderr, _T("error - failed on create_b_cas_card()\n"));
-		goto LAST;
+	if (!opt->embed){
+		bcas = create_b_cas_card();
+		if(bcas == NULL){
+			_ftprintf(stderr, _T("error - failed on create_b_cas_card()\n"));
+			goto LAST;
+		}
+
+		code = bcas->init(bcas);
+		if(code < 0){
+			_ftprintf(stderr, _T("error - failed on B_CAS_CARD::init() : code=%d\n"), code);
+			goto LAST;
+		}
+
+		code = b25->set_b_cas_card(b25, bcas);
+		if(code < 0){
+			_ftprintf(stderr, _T("error - failed on ARIB_STD_B25::set_b_cas_card() : code=%d\n"), code);
+			goto LAST;
+		}
 	}
 
-	code = bcas->init(bcas);
-	if(code < 0){
-		_ftprintf(stderr, _T("error - failed on B_CAS_CARD::init() : code=%d\n"), code);
-		goto LAST;
-	}
-
-	code = b25->set_b_cas_card(b25, bcas);
-	if(code < 0){
-		_ftprintf(stderr, _T("error - failed on ARIB_STD_B25::set_b_cas_card() : code=%d\n"), code);
-		goto LAST;
-	}
 
 	dfd = _topen(dst, _O_BINARY|_O_WRONLY|_O_SEQUENTIAL|_O_CREAT|_O_TRUNC, _S_IREAD|_S_IWRITE);
 	if(dfd < 0){
@@ -257,7 +285,7 @@ static void test_arib_std_b25(const TCHAR *src, const TCHAR *dst, OPTION *opt)
 		sbuf.data = data;
 		sbuf.size = n;
 
-		code = b25->put(b25, &sbuf);
+		code = b25->put(b25, &sbuf, opt->embed);
 		if(code < 0){
 			_ftprintf(stderr, _T("error - failed on ARIB_STD_B25::put() : code=%d\n"), code);
 			goto LAST;
@@ -302,7 +330,7 @@ static void test_arib_std_b25(const TCHAR *src, const TCHAR *dst, OPTION *opt)
 		}
 	}
 
-	code = b25->flush(b25);
+	code = b25->flush(b25, opt->embed);
 	if(code < 0){
 		_ftprintf(stderr, _T("error - failed on ARIB_STD_B25::flush() : code=%d\n"), code);
 		goto LAST;
@@ -372,8 +400,10 @@ static void test_arib_std_b25(const TCHAR *src, const TCHAR *dst, OPTION *opt)
 		}
 	}
 
-	if(opt->power_ctrl != 0){
-		show_bcas_power_on_control_info(bcas);
+	if (!opt->embed){
+		if(opt->power_ctrl != 0){
+			show_bcas_power_on_control_info(bcas);
+		}
 	}
 
 LAST:
@@ -393,9 +423,11 @@ LAST:
 		b25 = NULL;
 	}
 
-	if(bcas != NULL){
-		bcas->release(bcas);
-		bcas = NULL;
+	if (!opt->embed){
+		if(bcas != NULL){
+			bcas->release(bcas);
+			bcas = NULL;
+		}
 	}
 }
 
