@@ -52,14 +52,14 @@ typedef struct {
 
 	void (* release)(void *bcas);
 
-	int (* init)(void *bcas);
+	int (* init)(void *bcas, int32_t output_key);
 
 	int (* get_init_status)(void *bcas, B_CAS_INIT_STATUS *stat);
 	int (* get_id)(void *bcas, B_CAS_ID *dst);
 	int (* get_pwr_on_ctrl)(void *bcas, B_CAS_PWR_ON_CTRL_INFO *dst);
 
-	int (* proc_ecm)(void *bcas, B_CAS_ECM_RESULT *dst, uint8_t *src, int len);
-	int (* proc_emm)(void *bcas, uint8_t *src, int len);
+	int (* proc_ecm)(void *bcas, B_CAS_ECM_RESULT *dst, uint8_t *src, int len, int32_t output_key);
+	int (* proc_emm)(void *bcas, uint8_t *src, int len, int32_t output_key);
 	
 } B_CAS_CARD;
 

@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include <math.h>
 
@@ -70,12 +71,12 @@ static const uint8_t EMM_RECEIVE_CMD_HEADER[] = {
  function prottypes (interface method)
  ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
 static void release_b_cas_card(void *bcas);
-static int init_b_cas_card(void *bcas);
+static int init_b_cas_card(void *bcas, int32_t output_key);
 static int get_init_status_b_cas_card(void *bcas, B_CAS_INIT_STATUS *stat);
 static int get_id_b_cas_card(void *bcas, B_CAS_ID *dst);
 static int get_pwr_on_ctrl_b_cas_card(void *bcas, B_CAS_PWR_ON_CTRL_INFO *dst);
-static int proc_ecm_b_cas_card(void *bcas, B_CAS_ECM_RESULT *dst, uint8_t *src, int len);
-static int proc_emm_b_cas_card(void *bcas, uint8_t *src, int len);
+static int proc_ecm_b_cas_card(void *bcas, B_CAS_ECM_RESULT *dst, uint8_t *src, int len, int32_t output_key);
+static int proc_emm_b_cas_card(void *bcas, uint8_t *src, int len, int32_t output_key);
 
 /*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
  global function implementation
@@ -115,7 +116,7 @@ static B_CAS_CARD_PRIVATE_DATA *private_data(void *bcas);
 static void teardown(B_CAS_CARD_PRIVATE_DATA *prv);
 static int change_id_max(B_CAS_CARD_PRIVATE_DATA *prv, int max);
 static int change_pwc_max(B_CAS_CARD_PRIVATE_DATA *prv, int max);
-static int connect_card(B_CAS_CARD_PRIVATE_DATA *prv, LPCTSTR reader_name);
+static int connect_card(B_CAS_CARD_PRIVATE_DATA *prv, LPCTSTR reader_name, int32_t output_key);
 static void extract_power_on_ctrl_response(B_CAS_PWR_ON_CTRL *dst, uint8_t *src);
 static void extract_mjd(int *yy, int *mm, int *dd, int mjd);
 static int setup_ecm_receive_command(uint8_t *dst, uint8_t *src, int len);
@@ -140,7 +141,7 @@ static void release_b_cas_card(void *bcas)
 	free(prv);
 }
 
-static int init_b_cas_card(void *bcas)
+static int init_b_cas_card(void *bcas, int32_t output_key)
 {
 	int m;
 	LONG ret;
@@ -186,7 +187,7 @@ static int init_b_cas_card(void *bcas)
 	}
 
 	while( prv->reader[0] != 0 ){
-		if(connect_card(prv, prv->reader)){
+		if(connect_card(prv, prv->reader, output_key)){
 			break;
 		}
 		prv->reader += (_tcslen(prv->reader) + 1);
@@ -351,7 +352,7 @@ static int get_pwr_on_ctrl_b_cas_card(void *bcas, B_CAS_PWR_ON_CTRL_INFO *dst)
 	return 0;
 }
 
-static int proc_ecm_b_cas_card(void *bcas, B_CAS_ECM_RESULT *dst, uint8_t *src, int len)
+static int proc_ecm_b_cas_card(void *bcas, B_CAS_ECM_RESULT *dst, uint8_t *src, int len, int32_t output_key)
 {
 	int retry_count;
 	
@@ -383,7 +384,7 @@ static int proc_ecm_b_cas_card(void *bcas, B_CAS_ECM_RESULT *dst, uint8_t *src, 
 	ret = SCardTransmit(prv->card, SCARD_PCI_T1, prv->sbuf, slen, &sir, prv->rbuf, &rlen);
 	while( ((ret != SCARD_S_SUCCESS) || (rlen < 25)) && (retry_count < 10) ){
 		retry_count += 1;
-		if(!connect_card(prv, prv->reader)){
+		if(!connect_card(prv, prv->reader, output_key)){
 			continue;
 		}
 		slen = setup_ecm_receive_command(prv->sbuf, src, len);
@@ -403,7 +404,7 @@ static int proc_ecm_b_cas_card(void *bcas, B_CAS_ECM_RESULT *dst, uint8_t *src, 
 	return 0;
 }
 
-static int proc_emm_b_cas_card(void *bcas, uint8_t *src, int len)
+static int proc_emm_b_cas_card(void *bcas, uint8_t *src, int len, int32_t output_key)
 {
 	int retry_count;
 	
@@ -434,7 +435,7 @@ static int proc_emm_b_cas_card(void *bcas, uint8_t *src, int len)
 	ret = SCardTransmit(prv->card, SCARD_PCI_T1, prv->sbuf, slen, &sir, prv->rbuf, &rlen);
 	while( ((ret != SCARD_S_SUCCESS) || (rlen < 6)) && (retry_count < 2) ){
 		retry_count += 1;
-		if(!connect_card(prv, prv->reader)){
+		if(!connect_card(prv, prv->reader, output_key)){
 			continue;
 		}
 		slen = setup_emm_receive_command(prv->sbuf, src, len);
@@ -578,7 +579,7 @@ static int change_pwc_max(B_CAS_CARD_PRIVATE_DATA *prv, int max)
 	return 0;
 }
 
-static int connect_card(B_CAS_CARD_PRIVATE_DATA *prv, LPCTSTR reader_name)
+static int connect_card(B_CAS_CARD_PRIVATE_DATA *prv, LPCTSTR reader_name, int32_t output_key)
 {
 	int m,n;
 	
@@ -624,6 +625,23 @@ static int connect_card(B_CAS_CARD_PRIVATE_DATA *prv, LPCTSTR reader_name)
 	prv->stat.bcas_card_id = load_be_uint48(p+8);
 	prv->stat.card_status = load_be_uint16(p+2);
 	prv->stat.ca_system_id = load_be_uint16(p+6);
+
+	if(output_key){
+		FILE *fp;
+
+		fp = fopen("init_cbc.txt", "w");
+		for (int i = 0; i < sizeof(prv->stat.init_cbc) / sizeof(prv->stat.init_cbc[0]); i++) {
+			fprintf(fp, "%d\n", prv->stat.init_cbc[i]);
+		}
+
+		fclose(fp);
+
+		fp = fopen("ca_system_id.txt", "w");
+		fprintf(fp, "%d\n", prv->stat.ca_system_id);
+
+		fclose(fp);
+	}
+
 
 	return 1;
 }

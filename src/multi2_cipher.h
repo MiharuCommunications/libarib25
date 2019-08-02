@@ -99,7 +99,7 @@ struct cipher {
 };
 
 
-inline work_key_type schedule(const data_key_type &dk, const system_key_type &sk, int32_t embed) {
+inline work_key_type schedule(const data_key_type &dk, const system_key_type &sk, int32_t embed, int32_t output_key) {
 	typedef pi<uint32_t> p;
 	static int j = 0;
 	static uint32_t work_key[1000] = {0};
@@ -125,7 +125,7 @@ inline work_key_type schedule(const data_key_type &dk, const system_key_type &sk
 	w[6] = a7.left;
 	w[7] = a8.right;
 
-	if (!embed){
+	if (output_key){
 		FILE *fp;
 
 		if (first) {

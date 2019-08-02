@@ -113,6 +113,7 @@ static int parse_arg(OPTION *dst, int argc, TCHAR **argv)
 	dst->power_ctrl = 1;
 	dst->verbose = 1;
 	dst->embed = 0;
+	dst->output_key = 0;
 
 	for(i=1;i<argc;i++){
 		if(argv[i][0] != '-'){
@@ -224,7 +225,7 @@ static void test_arib_std_b25(const TCHAR *src, const TCHAR *dst, OPTION *opt)
 	total = _telli64(sfd);
 	_lseeki64(sfd, 0, SEEK_SET);
 
-	b25 = create_arib_std_b25();
+	b25 = create_arib_std_b25(opt->embed);
 	if(b25 == NULL){
 		_ftprintf(stderr, _T("error - failed on create_arib_std_b25()\n"));
 		goto LAST;
@@ -255,7 +256,7 @@ static void test_arib_std_b25(const TCHAR *src, const TCHAR *dst, OPTION *opt)
 			goto LAST;
 		}
 
-		code = bcas->init(bcas);
+		code = bcas->init(bcas, opt->output_key);
 		if(code < 0){
 			_ftprintf(stderr, _T("error - failed on B_CAS_CARD::init() : code=%d\n"), code);
 			goto LAST;
@@ -285,7 +286,7 @@ static void test_arib_std_b25(const TCHAR *src, const TCHAR *dst, OPTION *opt)
 		sbuf.data = data;
 		sbuf.size = n;
 
-		code = b25->put(b25, &sbuf, opt->embed);
+		code = b25->put(b25, &sbuf, opt->embed, opt->output_key);
 		if(code < 0){
 			_ftprintf(stderr, _T("error - failed on ARIB_STD_B25::put() : code=%d\n"), code);
 			goto LAST;
@@ -330,7 +331,7 @@ static void test_arib_std_b25(const TCHAR *src, const TCHAR *dst, OPTION *opt)
 		}
 	}
 
-	code = b25->flush(b25, opt->embed);
+	code = b25->flush(b25, opt->embed, opt->output_key);
 	if(code < 0){
 		_ftprintf(stderr, _T("error - failed on ARIB_STD_B25::flush() : code=%d\n"), code);
 		goto LAST;

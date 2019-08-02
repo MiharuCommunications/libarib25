@@ -37,9 +37,9 @@ typedef struct {
 	int (* set_b_cas_card)(void *std_b25, B_CAS_CARD *bcas);
 	
 	int (* reset)(void *std_b25);
-	int (* flush)(void *std_b25, int32_t embed);
+	int (* flush)(void *std_b25, int32_t embed, int32_t output_key);
 
-	int (* put)(void *std_b25, ARIB_STD_B25_BUFFER *buf, int32_t embed);
+	int (* put)(void *std_b25, ARIB_STD_B25_BUFFER *buf, int32_t embed, int32_t output_key);
 	int (* get)(void *std_b25, ARIB_STD_B25_BUFFER *buf);
 
 	int (* get_program_count)(void *std_b25);
@@ -51,7 +51,7 @@ typedef struct {
 extern "C" {
 #endif
 
-extern ARIB25_API_EXPORT ARIB_STD_B25 *create_arib_std_b25();
+extern ARIB25_API_EXPORT ARIB_STD_B25 *create_arib_std_b25(int32_t embed);
 
 #ifdef __cplusplus
 }

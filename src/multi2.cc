@@ -29,10 +29,34 @@ struct multi2 : public MULTI2 {
 		system_key = s;
 	}
 
-	inline void set_iv(uint8_t *p) {
+	inline void set_iv(uint8_t *p, int32_t embed) {
 		iv_type v;
-		v[0] = 0xfe271999;//load_be(p);
-		v[1] = 0x19690911;//load_be(p + 4);
+
+		if (embed) {
+			FILE *fp;
+			char buf[64];
+			uint8_t init_cbc[8] = {0};
+
+			fp = fopen("init_cbc.txt", "r");
+			if (fp == NULL) {
+				printf("Could not open init_cbc.txt\n");
+				goto end;
+			}
+			int i = 0;
+			while(fgets(buf, 64, fp) != NULL) {
+				init_cbc[i] = (uint8_t)atoi(buf);
+				i++;
+			}
+
+			v[0] = load_be(init_cbc);
+			v[1] = load_be(init_cbc + 4);
+
+		} else {
+			v[0] = load_be(p);
+			v[1] = load_be(p + 4);
+		}
+
+	end:
 		iv = v;
 	}
 
@@ -79,7 +103,7 @@ struct multi2 : public MULTI2 {
 		return 0;
 	}
 
-	inline int decrypt(int32_t type, uint8_t *b, size_t n, int32_t embed) {
+	inline int decrypt(int32_t type, uint8_t *b, size_t n, int32_t embed, int32_t output_key) {
 		int i = (type == 0x02);
 
 		if (!iv) {
@@ -95,7 +119,7 @@ struct multi2 : public MULTI2 {
 					return MULTI2_ERROR_UNSET_SCRAMBLE_KEY;
 				}
 			}
-			work_key[i] = schedule(*data_key[i], *system_key, embed);
+			work_key[i] = schedule(*data_key[i], *system_key, embed, output_key);
 
 			if (embed) {
 				work_key[!i].reset();
@@ -115,11 +139,11 @@ static void release_multi2(void *m2);
 static int add_ref_multi2(void *m2);
 static int set_round_multi2(void *m2, int32_t val);
 static int set_system_key_multi2(void *m2, uint8_t *val);
-static int set_init_cbc_multi2(void *m2, uint8_t *val);
+static int set_init_cbc_multi2(void *m2, uint8_t *val, int32_t embed);
 static int set_scramble_key_multi2(void *m2, uint8_t *val);
 static int clear_scramble_key_multi2(void *m2);
 static int encrypt_multi2(void *m2, int32_t type, uint8_t *buf, int32_t size);
-static int decrypt_multi2(void *m2, int32_t type, uint8_t *buf, int32_t size, int32_t embed);
+static int decrypt_multi2(void *m2, int32_t type, uint8_t *buf, int32_t size, int32_t embed, int32_t output_key);
 
 /*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
  global function implementation
@@ -206,14 +230,14 @@ static int set_system_key_multi2(void *m2, uint8_t *val)
 	return 0;
 }
 
-static int set_init_cbc_multi2(void *m2, uint8_t *val)
+static int set_init_cbc_multi2(void *m2, uint8_t *val, int32_t embed)
 {
 	multi2::multi2 *prv = private_data(m2);
 	if (!prv || !val) {
 		return MULTI2_ERROR_INVALID_PARAMETER;
 	}
 
-	prv->set_iv(val);
+	prv->set_iv(val, embed);
 	return 0;
 }
 
@@ -249,14 +273,14 @@ static int encrypt_multi2(void *m2, int32_t type, uint8_t *buf, int32_t size)
 	return prv->encrypt(type, buf, size);
 }
 
-static int decrypt_multi2(void *m2, int32_t type, uint8_t *buf, int32_t size, int32_t embed)
+static int decrypt_multi2(void *m2, int32_t type, uint8_t *buf, int32_t size, int32_t embed, int32_t output_key)
 {
 	multi2::multi2 *prv = private_data(m2);
 	if (!prv || !buf || size < 1) {
 		return MULTI2_ERROR_INVALID_PARAMETER;
 	}
 
-	return prv->decrypt(type, buf, size, embed);
+	return prv->decrypt(type, buf, size, embed, output_key);
 }
 
 /*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

@@ -14,12 +14,12 @@ typedef struct {
 	int (* set_round)(void *m2, int32_t val);
 
 	int (* set_system_key)(void *m2, uint8_t *val);
-	int (* set_init_cbc)(void *m2, uint8_t *val);
+	int (* set_init_cbc)(void *m2, uint8_t *val, int32_t embed);
 	int (* set_scramble_key)(void *m2, uint8_t *val);
 	int (* clear_scramble_key)(void *m2);
 
 	int (* encrypt)(void *m2, int32_t type, uint8_t *buf, int32_t size);
-	int (* decrypt)(void *m2, int32_t type, uint8_t *buf, int32_t size, int32_t embed);
+	int (* decrypt)(void *m2, int32_t type, uint8_t *buf, int32_t size, int32_t embed, int32_t output_key);
 
 } MULTI2;
 
